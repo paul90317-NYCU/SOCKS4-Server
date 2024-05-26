@@ -83,7 +83,7 @@ public:
             if (CD != 1 && CD != 2)
                 return;
 
-            std::cout<< CD << "\n";
+            std::cout << CD << "\n";
 
             int count = 0;
             int first = 0;
@@ -126,29 +126,33 @@ public:
                         return;
                     pipe2remote();
                     pipe2client(); });
-
-                
             }
             else
             {
-                tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
+                auto acceptor = new tcp::acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
 
                 memset(response, 0, 8);
                 response[1] = 90;
-                auto port = acceptor.local_endpoint().port();
+                auto port = acceptor->local_endpoint().port();
                 std::cout << port << "\n";
                 memcpy(response + 2, &port, 2);
                 std::swap(response[2], response[3]);
                 std::cout << (response[2] << 8 | response[3]) << "\n";
-                boost::asio::async_write(client, boost::asio::buffer(response, 8), [this, self](boost::system::error_code ec, std::size_t n)
+                boost::asio::async_write(client, boost::asio::buffer(response, 8),
+                                         [this, self, acceptor](boost::system::error_code ec, std::size_t n)
                                          {
                     if(ec)
                         return;
-                    pipe2remote();
-                    pipe2client(); });
-
-                acceptor.listen();
-                acceptor.accept(remote);
+                    acceptor->async_accept(remote,
+                        [this, self, acceptor](boost::system::error_code ec)
+                        {
+                            if(ec)
+                                return;
+                            pipe2remote();
+                            pipe2client();
+                            delete acceptor;
+                        }); 
+                     });
             }
 
             std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
