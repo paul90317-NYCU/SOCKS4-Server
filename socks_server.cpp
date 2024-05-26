@@ -80,7 +80,10 @@ public:
                 return;
 
             CD = header[1];
-            DSTPORT = std::to_string(header[2] << 8 | header[3]);
+            if (CD != 1 && CD != 2)
+                return;
+
+            std::cout<< CD << "\n";
 
             int count = 0;
             int first = 0;
@@ -91,40 +94,69 @@ public:
                 if (count == 1)
                     first = i + 1;
             }
-            if (!memcmp(&header[4], "\0\0\0", 3) && header[7])
+
+            auto self(shared_from_this());
+            if (CD == 1)
             {
-                tcp::resolver resovler(io_context);
-                auto endpoints = resovler.resolve(std::string((char *)&header[first]), DSTPORT);
-                boost::asio::connect(remote, endpoints);
-                DSTIP = endpoints.begin()->endpoint().address().to_string();
+                DSTPORT = std::to_string(header[2] << 8 | header[3]);
+                if (!memcmp(&header[4], "\0\0\0", 3) && header[7])
+                {
+                    tcp::resolver resovler(io_context);
+                    auto endpoints = resovler.resolve(std::string((char *)&header[first]), DSTPORT);
+                    boost::asio::connect(remote, endpoints);
+                    DSTIP = endpoints.begin()->endpoint().address().to_string();
+                }
+                else
+                {
+                    DSTIP = std::to_string((uint32_t)header[4]) + ".";
+                    DSTIP += std::to_string((uint32_t)header[5]) + ".";
+                    DSTIP += std::to_string((uint32_t)header[6]) + ".";
+                    DSTIP += std::to_string((uint32_t)header[7]);
+                    tcp::resolver resovler(io_context);
+                    auto endpoints = resovler.resolve(DSTIP, DSTPORT);
+                    boost::asio::connect(remote, endpoints);
+                }
+
+                memset(response, 0, 8);
+                response[1] = 90;
+
+                boost::asio::async_write(client, boost::asio::buffer(response, 8), [this, self](boost::system::error_code ec, std::size_t n)
+                                         {
+                    if(ec)
+                        return;
+                    pipe2remote();
+                    pipe2client(); });
+
+                
             }
             else
             {
-                DSTIP = std::to_string((uint32_t)header[4]) + ".";
-                DSTIP += std::to_string((uint32_t)header[5]) + ".";
-                DSTIP += std::to_string((uint32_t)header[6]) + ".";
-                DSTIP += std::to_string((uint32_t)header[7]);
-                tcp::resolver resovler(io_context);
-                auto endpoints = resovler.resolve(DSTIP, DSTPORT);
-                boost::asio::connect(remote, endpoints);
+                tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
+
+                memset(response, 0, 8);
+                response[1] = 90;
+                auto port = acceptor.local_endpoint().port();
+                std::cout << port << "\n";
+                memcpy(response + 2, &port, 2);
+                std::swap(response[2], response[3]);
+                std::cout << (response[2] << 8 | response[3]) << "\n";
+                boost::asio::async_write(client, boost::asio::buffer(response, 8), [this, self](boost::system::error_code ec, std::size_t n)
+                                         {
+                    if(ec)
+                        return;
+                    pipe2remote();
+                    pipe2client(); });
+
+                acceptor.listen();
+                acceptor.accept(remote);
             }
 
             std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
             std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
             std::cout << "<D_IP>: " << DSTIP << "\n";
             std::cout << "<D_PORT>: " << DSTPORT << "\n";
-            std::cout << "<Command>: " << CD << "\n";
-            std::cout << "<Reply>: Accept\n";
-
-            memset(response, 0, 8);
-            response[1] = 90;
-            auto self(shared_from_this());
-            boost::asio::async_write(client, boost::asio::buffer(response, 8), [this, self](boost::system::error_code ec, std::size_t n)
-                                     {
-                if(ec)
-                    return;
-                pipe2remote();
-                pipe2client(); });
+            std::cout << "<Command>: " << (CD == 1 ? "CONNECTION" : "BIND") << "\n";
+            std::cout << "<Reply>: Accept\n\n";
         }
         catch (std::exception &e)
         {
