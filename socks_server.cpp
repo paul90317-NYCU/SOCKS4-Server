@@ -175,7 +175,6 @@ public:
                                {
 			if (ec)
                 return;
-            
             boost::asio::async_write(remote, boost::asio::buffer(to_remote, n), [this, self](boost::system::error_code ec, std::size_t n){
                 if(ec)
                     return;
@@ -211,8 +210,13 @@ class server
 {
 public:
     server(short port)
-        : acceptor_(io_context, tcp::endpoint(tcp::v4(), port))
+        : acceptor_(io_context)
     {
+        boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), port);
+        acceptor_.open(endpoint.protocol());
+        acceptor_.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+        acceptor_.bind(endpoint);
+        acceptor_.listen();
         do_accept();
     }
 
@@ -222,12 +226,24 @@ private:
         acceptor_.async_accept(
             [this](boost::system::error_code ec, tcp::socket socket)
             {
-                if (!ec)
-                {
+                if (ec)
+                    return;
+                io_context.notify_fork(boost::asio::io_service::fork_prepare);
+                pid_t pid = fork();
+                while(pid == -1)
+                    pid = fork();
+                switch(pid){
+                case -1:
+                    perror("fork()");
+                    return;
+                case 0: // child
+                    io_context.notify_fork(boost::asio::io_service::fork_child);
                     std::make_shared<session>(std::move(socket))
                         ->start();
+                default: // parent
+                    io_context.notify_fork(boost::asio::io_service::fork_parent);
+                    do_accept();
                 }
-                do_accept();
             });
     }
 
