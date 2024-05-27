@@ -132,6 +132,13 @@ public:
                         return;
                     pipe2remote();
                     pipe2client(); });
+
+                std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
+                std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
+                std::cout << "<D_IP>: " << DSTIP << "\n";
+                std::cout << "<D_PORT>: " << DSTPORT << "\n";
+                std::cout << "<Command>: " << "CONNECTION\n";
+                std::cout << "<Reply>: Accept\n\n";
             }
             else
             {
@@ -152,6 +159,14 @@ public:
                         {
                             if(ec)
                                 return;
+                            
+                            std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
+                            std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
+                            std::cout << "<D_IP>: " << remote.remote_endpoint().address() << "\n";
+                            std::cout << "<D_PORT>: " << remote.remote_endpoint().port() << "\n";
+                            std::cout << "<Command>: " << "CONNECTION\n";
+                            std::cout << "<Reply>: Accept\n\n";
+
                             pipe2remote();
                             pipe2client();
                             delete acceptor;
@@ -159,12 +174,7 @@ public:
                      });
             }
 
-            std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
-            std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
-            std::cout << "<D_IP>: " << DSTIP << "\n";
-            std::cout << "<D_PORT>: " << DSTPORT << "\n";
-            std::cout << "<Command>: " << (CD == 1 ? "CONNECTION" : "BIND") << "\n";
-            std::cout << "<Reply>: Accept\n\n";
+            
         }
         catch (std::exception &e)
         {
