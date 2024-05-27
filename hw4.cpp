@@ -148,8 +148,11 @@ private:
     std::string response_;
 };
 
-void execute(boost::asio::io_context &io_context,
-             std::string host,
+boost::asio::io_context io_context;
+
+std::string sh, sp;
+
+void execute(std::string host,
              std::string port,
              std::string filename,
              std::string is)
@@ -167,10 +170,22 @@ void execute(boost::asio::io_context &io_context,
 
     // Resolve endpoint
     tcp::resolver resolver(io_context);
-    auto endpoints = resolver.resolve(host, port);
+    auto endpoints = resolver.resolve(sh, sp);
 
-    // Connect to server
+    // Connect to 
     boost::asio::connect(socket, endpoints);
+
+    // Proxy
+    uint16_t socks4a_port = std::atoi(sp.data());
+    uint8_t *portarray = (uint8_t *)&socks4a_port;
+    std::swap(portarray[0], portarray[1]);
+    boost::asio::streambuf buf;
+    std::ostream bout(&buf);
+    bout.write("\0\1", 2).write((char *)portarray, 2).write("\0\0\0\1\0", 5) << host;
+    bout.write("\0", 1);
+    boost::asio::write(socket, buf);
+
+    // Communication
     std::make_shared<session>(std::move(socket), std::move(file), is)->start();
 }
 
@@ -190,18 +205,17 @@ int main()
     }
     free(qstart);
 
-    boost::asio::io_context io_context;
     for (int i = 0; i < 5; ++i) {
         std::string is = std::to_string(i);
         std::string hi = querys["h" + is], pi = querys["p" + is],
                     fi = querys["f" + is];
         if (hi.size() && pi.size() && fi.size()) {
-            execute(io_context, hi, pi, fi, is);
+            execute(hi, pi, fi, is);
             output_connection(is, hi, pi);
         }
     }
-
-    // execute(io_context, "127.0.0.1", "25569", "t1.txt");
+    sh = querys["sh"];
+    sp = querys["sp"];
 
     io_context.run();
 

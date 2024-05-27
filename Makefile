@@ -21,4 +21,5 @@ format:
 
 install: socks_server hw4.cgi
 	cp hw4.cgi ~/public_html/
-	echo http://nplinux1.cs.nycu.edu.tw/~xbwu90317/hw4.cgi
+	cp panel_socks.cgi ~/public_html/
+	@echo http://nplinux1.cs.nycu.edu.tw/~xbwu90317/panel_socks.cgi
