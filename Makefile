@@ -20,7 +20,12 @@ format:
 	clang-format -i *.cpp *.hpp --style=file
 
 install: socks_server hw4.cgi
-	cp hw4.cgi ~/public_html/
-	cp panel_socks.cgi ~/public_html/
-	cp -r test_case ~/public_html/test_case
+	cp hw4.cgi ~/public_html
+	cp panel_socks.cgi ~/public_html
+	cp -r test_case/ ~/public_html
 	@echo http://nplinux1.cs.nycu.edu.tw/~xbwu90317/panel_socks.cgi
+
+np_single_golden:
+	rm -rf np_single/working_dir
+	cp -r np_single/working_dir_template np_single/working_dir
+	cd np_single/working_dir && ./np_single_golden 25569

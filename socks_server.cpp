@@ -83,8 +83,6 @@ public:
             if (CD != 1 && CD != 2)
                 return;
 
-            std::cout << CD << "\n";
-
             int count = 0;
             int first = 0;
             for (std::size_t i = 8; i < header.size(); ++i)
@@ -92,7 +90,10 @@ public:
                 if (!header[i])
                     ++count;
                 if (count == 1)
+                {
                     first = i + 1;
+                    break;
+                }
             }
 
             auto self(shared_from_this());
@@ -134,10 +135,8 @@ public:
                 memset(response, 0, 8);
                 response[1] = 90;
                 auto port = acceptor->local_endpoint().port();
-                std::cout << port << "\n";
                 memcpy(response + 2, &port, 2);
                 std::swap(response[2], response[3]);
-                std::cout << (response[2] << 8 | response[3]) << "\n";
                 boost::asio::async_write(client, boost::asio::buffer(response, 8),
                                          [this, self, acceptor](boost::system::error_code ec, std::size_t n)
                                          {

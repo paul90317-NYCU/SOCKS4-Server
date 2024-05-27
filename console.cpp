@@ -176,14 +176,16 @@ void execute(std::string host,
     boost::asio::connect(socket, endpoints);
 
     // Proxy
-    uint16_t socks4a_port = std::atoi(sp.data());
+    uint16_t socks4a_port = std::atoi(port.data());
     uint8_t *portarray = (uint8_t *)&socks4a_port;
     std::swap(portarray[0], portarray[1]);
     boost::asio::streambuf buf;
     std::ostream bout(&buf);
-    bout.write("\0\1", 2).write((char *)portarray, 2).write("\0\0\0\1\0", 5) << host;
+    bout.write("\4\1", 2).write((char *)portarray, 2).write("\0\0\0\1\0", 5) << host;
     bout.write("\0", 1);
     boost::asio::write(socket, buf);
+    char socks4a_res[8];
+    boost::asio::read(socket, boost::asio::buffer(socks4a_res));
 
     // Communication
     std::make_shared<session>(std::move(socket), std::move(file), is)->start();
@@ -205,6 +207,9 @@ int main()
     }
     free(qstart);
 
+    sh = querys["sh"];
+    sp = querys["sp"];
+
     for (int i = 0; i < 5; ++i) {
         std::string is = std::to_string(i);
         std::string hi = querys["h" + is], pi = querys["p" + is],
@@ -214,8 +219,6 @@ int main()
             output_connection(is, hi, pi);
         }
     }
-    sh = querys["sh"];
-    sp = querys["sp"];
 
     io_context.run();
 
