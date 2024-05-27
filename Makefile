@@ -10,11 +10,11 @@ all: socks_server hw4.cgi
 socks_server: socks_server.cpp
 	$(CXX) $< -o $@ $(CXX_INCLUDE_PARAMS) $(CXX_LIB_PARAMS) $(CXXFLAGS) -g
 
-hw4.cgi: hw4.cpp
+hw4.cgi: console.cpp
 	$(CXX) $< -o $@ $(CXX_INCLUDE_PARAMS) $(CXX_LIB_PARAMS) $(CXXFLAGS) -g
 
 clean:
-	rm -f socks_server
+	rm -f socks_server hw4.cgi
 
 format:
 	clang-format -i *.cpp *.hpp --style=file
@@ -22,4 +22,5 @@ format:
 install: socks_server hw4.cgi
 	cp hw4.cgi ~/public_html/
 	cp panel_socks.cgi ~/public_html/
+	cp -r test_case ~/public_html/test_case
 	@echo http://nplinux1.cs.nycu.edu.tw/~xbwu90317/panel_socks.cgi
