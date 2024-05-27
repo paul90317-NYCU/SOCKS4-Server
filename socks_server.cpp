@@ -4,12 +4,17 @@
 #include <vector>
 #include <cstring>
 #include <regex>
+#include <sys/wait.h>
 
 boost::asio::io_context io_context;
 
 using boost::asio::ip::tcp;
 
 #define BUF_SIZE 1024
+
+void clean_zombies() {
+    while (waitpid(-1, nullptr, WNOHANG) > 0);
+}
 
 class socks4a_match
 {
@@ -173,11 +178,15 @@ public:
         auto self(shared_from_this());
         client.async_read_some(boost::asio::buffer(to_remote), [this, self](boost::system::error_code ec, std::size_t n)
                                {
-			if (ec)
+			if (ec){
+                remote.close();
                 return;
+            }
             boost::asio::async_write(remote, boost::asio::buffer(to_remote, n), [this, self](boost::system::error_code ec, std::size_t n){
-                if(ec)
+                if (ec){
+                    client.close();
                     return;
+                }
                 pipe2remote();
             }); });
     }
@@ -187,11 +196,16 @@ public:
         auto self(shared_from_this());
         remote.async_read_some(boost::asio::buffer(to_client), [this, self](boost::system::error_code ec, std::size_t n)
                                {
-			if (ec)
+			if (ec){
+                client.close();
                 return;
+            }
+                
             boost::asio::async_write(client, boost::asio::buffer(to_client, n), [this, self](boost::system::error_code ec, std::size_t n){
-                if(ec)
+                if (ec){
+                    remote.close();
                     return;
+                }
                 pipe2client();
             }); });
     }
@@ -238,10 +252,12 @@ private:
                     return;
                 case 0: // child
                     io_context.notify_fork(boost::asio::io_service::fork_child);
+                    acceptor_.close();
                     std::make_shared<session>(std::move(socket))
                         ->start();
                 default: // parent
                     io_context.notify_fork(boost::asio::io_service::fork_parent);
+                    clean_zombies();
                     do_accept();
                 }
             });
