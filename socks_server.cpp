@@ -120,7 +120,7 @@ public:
                 parse_header(); });
     }
 
-    auto get_dstip() {
+    void set_dstip() {
         int count = 0;
         int first = 0;
         for (std::size_t i = 8; i < header.size(); ++i)
@@ -136,8 +136,8 @@ public:
         if (!memcmp(&header[4], "\0\0\0", 3) && header[7])
         {
             tcp::resolver resovler(io_context);
-            auto endpoints = resovler.resolve(std::string((char *)&header[first]), DSTPORT);
-            return endpoints;
+            remote_ips = resovler.resolve(std::string((char *)&header[first]), DSTPORT);
+            return;
         }
         else
         {
@@ -146,8 +146,8 @@ public:
             DSTIP += std::to_string((uint32_t)header[6]) + ".";
             DSTIP += std::to_string((uint32_t)header[7]);
             tcp::resolver resovler(io_context);
-            auto endpoints = resovler.resolve(DSTIP, DSTPORT);
-            return endpoints;
+            remote_ips = resovler.resolve(DSTIP, DSTPORT);
+            return;
         }
     }
 
@@ -174,11 +174,11 @@ public:
             if (CD == 1)
             {
                 DSTPORT = std::to_string(header[2] << 8 | header[3]);
-                auto endpoints = get_dstip();
-                for(auto ip : endpoints){
+                set_dstip();
+                for(auto ip : remote_ips){
                     DSTIP = ip.endpoint().address().to_string();
                     if(firewall_check('c', DSTIP)) {
-                        boost::asio::connect(remote, endpoints);
+                        boost::asio::connect(remote, remote_ips);
                         break;
                     }
                 }
@@ -218,8 +218,8 @@ public:
             {
                 tcp::acceptor *acceptor = NULL;
                 DSTPORT = "0";
-                auto ips = get_dstip();
-                for(auto ip : ips){
+                set_dstip();
+                for(auto ip : remote_ips){
                     DSTIP = ip.endpoint().address().to_string();
                     if(firewall_check('b', DSTIP)) {
                         acceptor = new tcp::acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
@@ -262,12 +262,31 @@ public:
                                     return;
                                 std::cout << "<D_PORT>: " << remote.remote_endpoint().port() << "\n";
                                 std::cout << "<Command>: " << "BIND\n";
-                                std::cout << "<Reply>: Accept\n\n";
                                 
                                 delete acceptor;
                                 
-                                pipe2remote();
-                                pipe2client();
+                                response[1] = 91;
+                                for(auto ip : remote_ips) {
+                                    if(remote.remote_endpoint().address().to_string() == ip.endpoint().address().to_string())
+                                        response[1] = 90;
+                                }
+                                boost::asio::async_write(client, boost::asio::buffer(response, 8),
+                                    [this, self](boost::system::error_code ec, std::size_t n) {
+                                        if (ec) {
+                                            std::cout << "<Reply>: Reject\n\n";
+                                            remote.close();
+                                            return;
+                                        }
+                                        if (response[1] != 90) {
+                                            std::cout << "<Reply>: Reject\n\n";
+                                            client.close();
+                                            remote.close();
+                                            return;
+                                        }
+                                        std::cout << "<Reply>: Accept\n\n";
+                                        pipe2remote();
+                                        pipe2client();
+                                    });
                             });
                     });
                 
@@ -318,6 +337,7 @@ public:
     }
 
 private:
+    boost::asio::ip::basic_resolver_results<tcp> remote_ips;
     std::vector<uint8_t> header;
     uint32_t VN, CD;
     uint8_t response[8];
