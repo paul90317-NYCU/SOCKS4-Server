@@ -112,12 +112,16 @@ public:
 
     void start()
     {
-        auto self(shared_from_this());
-        boost::asio::async_read_until(client, boost::asio::dynamic_buffer(header), socks4a_match(), [this, self](boost::system::error_code ec, std::size_t n)
-                                      {
-                if(ec)
-                    return;
-                parse_header(); });
+        try
+        {
+            auto self(shared_from_this());
+            boost::asio::read_until(client, boost::asio::dynamic_buffer(header), socks4a_match());
+            parse_header();
+        }
+        catch (std::exception &e)
+        {
+            return;
+        }
     }
 
     void set_dstip() {
@@ -153,149 +157,98 @@ public:
 
     void parse_header()
     {
-        try
+        auto self(shared_from_this());
+        VN = header[0];
+        CD = header[1];
+        if (VN != 4 || (CD != 1 && CD != 2)) {
+            memset(response, 0, 8);
+            response[1] = 91;
+            boost::asio::write(client, boost::asio::buffer(response, 8));
+            return;
+        }
+
+        if (CD == 1)
         {
-            auto self(shared_from_this());
-            VN = header[0];
-            CD = header[1];
-            if (VN != 4 || (CD != 1 && CD != 2)) {
+            DSTPORT = std::to_string(header[2] << 8 | header[3]);
+            set_dstip();
+            for(auto ip : remote_ips){
+                DSTIP = ip.endpoint().address().to_string();
+                if(firewall_check('c', DSTIP)) {
+                    boost::asio::connect(remote, remote_ips);
+                    break;
+                }
+            }
+        
+            std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
+            std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
+            std::cout << "<D_IP>: " << DSTIP << "\n";
+            std::cout << "<D_PORT>: " << DSTPORT << "\n";
+            std::cout << "<Command>: " << "CONNECTION\n";
+            if(remote.is_open()) {
+                std::cout << "<Reply>: Accept\n\n";
+                memset(response, 0, 8);
+                response[1] = 90;
+                boost::asio::write(client, boost::asio::buffer(response, 8));
+                pipe2remote();
+                pipe2client();
+            } else {
+                std::cout << "<Reply>: Reject\n\n";
                 memset(response, 0, 8);
                 response[1] = 91;
-                boost::asio::async_write(client, boost::asio::buffer(response, 8),
-                    [this, self](boost::system::error_code ec, std::size_t n)
-                    {
-                        if (ec)
-                            return;
-                        client.close();
-                    });
+                boost::asio::write(client, boost::asio::buffer(response, 8));
+                client.close();
+            }
+        }
+        else
+        {
+            DSTPORT = "0";
+            set_dstip();
+            tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
+            bool accepted = false;
+            for(auto ip : remote_ips){
+                DSTIP = ip.endpoint().address().to_string();
+                if(firewall_check('b', DSTIP)) {
+                    accepted = true;
+                }
+            }
+            std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
+            std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
+            std::cout << "<D_IP>: " << DSTIP << "\n";
+
+            if(!accepted) {
+                std::cout << "<D_PORT>: " << "0" << "\n";
+                std::cout << "<Command>: " << "BIND\n";
+                std::cout << "<Reply>: Reject\n\n";
+                memset(response, 0, 8);
+                response[1] = 91;
+                boost::asio::write(client, boost::asio::buffer(response, 8));
                 return;
             }
 
-            if (CD == 1)
-            {
-                DSTPORT = std::to_string(header[2] << 8 | header[3]);
-                set_dstip();
-                for(auto ip : remote_ips){
-                    DSTIP = ip.endpoint().address().to_string();
-                    if(firewall_check('c', DSTIP)) {
-                        boost::asio::connect(remote, remote_ips);
-                        break;
-                    }
-                }
-            
-                std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
-                std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
-                std::cout << "<D_IP>: " << DSTIP << "\n";
-                std::cout << "<D_PORT>: " << DSTPORT << "\n";
-                std::cout << "<Command>: " << "CONNECTION\n";
-                if(remote.is_open()) {
-                    std::cout << "<Reply>: Accept\n\n";
-                    memset(response, 0, 8);
+            memset(response, 0, 8);
+            response[1] = 90;
+            auto port = acceptor.local_endpoint().port();
+            memcpy(response + 2, &port, 2);
+            std::swap(response[2], response[3]);
+
+            boost::asio::write(client, boost::asio::buffer(response, 8));
+            acceptor.accept(remote);
+            std::cout << "<D_PORT>: " << remote.remote_endpoint().port() << "\n";
+            std::cout << "<Command>: " << "BIND\n";
+                    
+            response[1] = 91;
+            for(auto ip : remote_ips) {
+                if(remote.remote_endpoint().address().to_string() == ip.endpoint().address().to_string())
                     response[1] = 90;
-                    boost::asio::async_write(client, boost::asio::buffer(response, 8), 
-                        [this, self](boost::system::error_code ec, std::size_t n)
-                        {
-                            if(ec)
-                                return;
-                            pipe2remote();
-                            pipe2client();
-                        });
-                } else {
-                    std::cout << "<Reply>: Reject\n\n";
-                    memset(response, 0, 8);
-                    response[1] = 91;
-                    boost::asio::async_write(client, boost::asio::buffer(response, 8), 
-                        [this, self](boost::system::error_code ec, std::size_t n)
-                        {
-                            if(ec)
-                                return;
-                            client.close();
-                        });
-                }
-
             }
-            else
-            {
-                tcp::acceptor *acceptor = NULL;
-                DSTPORT = "0";
-                set_dstip();
-                for(auto ip : remote_ips){
-                    DSTIP = ip.endpoint().address().to_string();
-                    if(firewall_check('b', DSTIP)) {
-                        acceptor = new tcp::acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
-                    }
-                }
-                std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
-                std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
-                std::cout << "<D_IP>: " << DSTIP << "\n";
-                if(!acceptor) {
-                    std::cout << "<D_PORT>: " << "0" << "\n";
-                    std::cout << "<Command>: " << "BIND\n";
-                    std::cout << "<Reply>: Reject\n\n";
-                    memset(response, 0, 8);
-                    response[1] = 91;
-                    boost::asio::async_write(client, boost::asio::buffer(response, 8),
-                        [this, self](boost::system::error_code ec, std::size_t n)
-                        {
-                            if (ec)
-                                return;
-                            client.close();
-                        });
-                    return;
-                }
-
-                memset(response, 0, 8);
-                response[1] = 90;
-                auto port = acceptor->local_endpoint().port();
-                memcpy(response + 2, &port, 2);
-                std::swap(response[2], response[3]);
-
-                boost::asio::async_write(client, boost::asio::buffer(response, 8),
-                    [this, self, acceptor](boost::system::error_code ec, std::size_t n)
-                    {
-                        if (ec)
-                            return;
-                        acceptor->async_accept(remote,
-                            [this, self, acceptor](boost::system::error_code ec)
-                            {
-                                if (ec)
-                                    return;
-                                std::cout << "<D_PORT>: " << remote.remote_endpoint().port() << "\n";
-                                std::cout << "<Command>: " << "BIND\n";
-                                
-                                delete acceptor;
-                                
-                                response[1] = 91;
-                                for(auto ip : remote_ips) {
-                                    if(remote.remote_endpoint().address().to_string() == ip.endpoint().address().to_string())
-                                        response[1] = 90;
-                                }
-                                boost::asio::async_write(client, boost::asio::buffer(response, 8),
-                                    [this, self](boost::system::error_code ec, std::size_t n) {
-                                        if (ec) {
-                                            std::cout << "<Reply>: Reject\n\n";
-                                            remote.close();
-                                            return;
-                                        }
-                                        if (response[1] != 90) {
-                                            std::cout << "<Reply>: Reject\n\n";
-                                            client.close();
-                                            remote.close();
-                                            return;
-                                        }
-                                        std::cout << "<Reply>: Accept\n\n";
-                                        pipe2remote();
-                                        pipe2client();
-                                    });
-                            });
-                    });
-                
+            boost::asio::write(client, boost::asio::buffer(response, 8));
+            if (response[1] != 90) {
+                std::cout << "<Reply>: Reject\n\n";
+                return;
             }
-        }
-        catch (std::exception &e)
-        {
-            std::cerr << "Exception: " << e.what() << "\n";
-            return;
+            std::cout << "<Reply>: Accept\n\n";
+            pipe2remote();
+            pipe2client();
         }
     }
 
@@ -380,13 +333,14 @@ private:
                     return;
                 case 0: // child
                     io_context.notify_fork(boost::asio::io_service::fork_child);
-                    acceptor_.close();
                     std::make_shared<session>(std::move(socket))
                         ->start();
+                    return;
                 default: // parent
                     io_context.notify_fork(boost::asio::io_service::fork_parent);
                     clean_zombies();
                     do_accept();
+                    return;
                 }
             });
     }
