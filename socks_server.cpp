@@ -21,10 +21,17 @@ void clean_zombies()
 
 bool firewall_check(char kind, const std::string& ip)
 {
-    std::ifstream rules;
-    rules.open("./socks.conf");
-    if (!rules.is_open())
+    std::ifstream rules("./socks.conf");
+    if (!rules.is_open()) {
+        std::ofstream outfile("./socks.conf");
+        if (outfile) {
+            outfile << "permit c *.*.*.*\n";
+            outfile << "permit b *.*.*.*\n";
+            return true;
+        }
         return false;
+    }
+        
 
     std::string rule;
     while (std::getline(rules, rule))
