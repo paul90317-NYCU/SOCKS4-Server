@@ -155,15 +155,22 @@ public:
     {
         try
         {
-            VN = header[0];
-            if (VN != 4)
-                return;
-
-            CD = header[1];
-            if (CD != 1 && CD != 2)
-                return;
-
             auto self(shared_from_this());
+            VN = header[0];
+            CD = header[1];
+            if (VN != 4 || (CD != 1 && CD != 2)) {
+                memset(response, 0, 8);
+                response[1] = 91;
+                boost::asio::async_write(client, boost::asio::buffer(response, 8),
+                    [this, self](boost::system::error_code ec, std::size_t n)
+                    {
+                        if (ec)
+                            return;
+                        client.close();
+                    });
+                return;
+            }
+
             if (CD == 1)
             {
                 DSTPORT = std::to_string(header[2] << 8 | header[3]);
@@ -227,7 +234,6 @@ public:
                     std::cout << "<Reply>: Reject\n\n";
                     memset(response, 0, 8);
                     response[1] = 91;
-                    remote.close();
                     boost::asio::async_write(client, boost::asio::buffer(response, 8),
                         [this, self](boost::system::error_code ec, std::size_t n)
                         {
