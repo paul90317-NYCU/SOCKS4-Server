@@ -228,7 +228,8 @@ public:
 
             if(!accepted) {
                 log(false);
-                reply(91, 0);
+                reply(90, port);
+                reply(91, port);
                 return;
             }
             
