@@ -131,7 +131,9 @@ public:
         }
     }
 
-    void set_dstip() {
+    void set_dst() {
+        DSTPORT = std::to_string(header[2] << 8 | header[3]);;
+
         int count = 0;
         int first = 0;
         for (std::size_t i = 8; i < header.size(); ++i)
@@ -162,22 +164,36 @@ public:
         }
     }
 
+    void reply(uint8_t cd, uint16_t port) {
+        memset(response, 0, 8);
+        response[1] = cd;
+        memcpy(response + 2, &port, 2);
+        std::swap(response[2], response[3]);
+        boost::asio::write(client, boost::asio::buffer(response, 8));
+    }
+
+    void log(bool accepted) {
+        std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
+        std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
+        std::cout << "<D_IP>: " << DSTIP << "\n";
+        std::cout << "<D_PORT>: " << DSTPORT << "\n";
+        std::cout << "<Command>: " << (CD == 1 ? "CONNECTION\n" : "BIND\n");
+        std::cout << "<Reply>: " << (accepted ? "Accept\n\n" : "Reject\n\n");
+    }
+
     void parse_header()
     {
         auto self(shared_from_this());
         VN = header[0];
         CD = header[1];
         if (VN != 4 || (CD != 1 && CD != 2)) {
-            memset(response, 0, 8);
-            response[1] = 91;
-            boost::asio::write(client, boost::asio::buffer(response, 8));
             return;
         }
+        
+        set_dst();
 
         if (CD == 1)
         {
-            DSTPORT = std::to_string(header[2] << 8 | header[3]);
-            set_dstip();
             for(auto ip : remote_ips){
                 DSTIP = ip.endpoint().address().to_string();
                 if(firewall_check('c', DSTIP)) {
@@ -186,31 +202,18 @@ public:
                 }
             }
         
-            std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
-            std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
-            std::cout << "<D_IP>: " << DSTIP << "\n";
-            std::cout << "<D_PORT>: " << DSTPORT << "\n";
-            std::cout << "<Command>: " << "CONNECTION\n";
             if(remote.is_open()) {
-                std::cout << "<Reply>: Accept\n\n";
-                memset(response, 0, 8);
-                response[1] = 90;
-                boost::asio::write(client, boost::asio::buffer(response, 8));
+                reply(90, 0);
+                log(true);
                 pipe2remote();
                 pipe2client();
             } else {
-                std::cout << "<Reply>: Reject\n\n";
-                memset(response, 0, 8);
-                response[1] = 91;
-                boost::asio::write(client, boost::asio::buffer(response, 8));
-                client.close();
+                reply(91, 0);
+                log(false);
             }
         }
         else
         {
-            DSTPORT = "0";
-            set_dstip();
-            tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
             bool accepted = false;
             for(auto ip : remote_ips){
                 DSTIP = ip.endpoint().address().to_string();
@@ -218,44 +221,38 @@ public:
                     accepted = true;
                 }
             }
-            std::cout << "<S_IP>: " << client.remote_endpoint().address() << "\n";
-            std::cout << "<S_PORT>: " << client.remote_endpoint().port() << "\n";
-            std::cout << "<D_IP>: " << DSTIP << "\n";
+            
+
+            tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
+            auto port = acceptor.local_endpoint().port();
 
             if(!accepted) {
-                std::cout << "<D_PORT>: " << "0" << "\n";
-                std::cout << "<Command>: " << "BIND\n";
-                std::cout << "<Reply>: Reject\n\n";
-                memset(response, 0, 8);
-                response[1] = 91;
-                boost::asio::write(client, boost::asio::buffer(response, 8));
+                log(false);
+                reply(91, 0);
                 return;
             }
+            
+            reply(90, port);
 
-            memset(response, 0, 8);
-            response[1] = 90;
-            auto port = acceptor.local_endpoint().port();
-            memcpy(response + 2, &port, 2);
-            std::swap(response[2], response[3]);
-
-            boost::asio::write(client, boost::asio::buffer(response, 8));
             acceptor.accept(remote);
-            std::cout << "<D_PORT>: " << remote.remote_endpoint().port() << "\n";
-            std::cout << "<Command>: " << "BIND\n";
                     
-            response[1] = 91;
+            accepted = false;
             for(auto ip : remote_ips) {
                 if(remote.remote_endpoint().address().to_string() == ip.endpoint().address().to_string())
-                    response[1] = 90;
+                    accepted = true;
             }
-            boost::asio::write(client, boost::asio::buffer(response, 8));
-            if (response[1] != 90) {
-                std::cout << "<Reply>: Reject\n\n";
-                return;
+
+            if(accepted) {
+                reply(90, port);
+                log(true);
+                pipe2remote();
+                pipe2client();
             }
-            std::cout << "<Reply>: Accept\n\n";
-            pipe2remote();
-            pipe2client();
+            else
+            {
+                reply(91, 0);
+                log(false);
+            }
         }
     }
 
