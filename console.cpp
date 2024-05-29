@@ -215,7 +215,11 @@ int main()
         std::string hi = querys["h" + is], pi = querys["p" + is],
                     fi = querys["f" + is];
         if (hi.size() && pi.size() && fi.size()) {
-            execute(hi, pi, fi, is);
+            try {
+                execute(hi, pi, fi, is);
+            } catch (...) {
+
+            }
             output_connection(is, hi, pi);
         }
     }
